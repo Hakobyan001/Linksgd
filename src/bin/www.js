@@ -13,15 +13,16 @@ const knex = require('knex')(db.option);
 const numCPUs = require('os').cpus().length;
 
 let start = 0;
-let end = 1;
-const step = 1000;
+let end = 0;
+const step = 20;
 const worker = [];
-const limit = 1000000;
+const limit = 240;
+let stop = 0;
 
 async function isPrimary() {
   if (cluster.isPrimary) {
     const links = await UrlsModel.getUrls(0, limit);
-
+    console.log(links.length);
     for (let i = 0; i < numCPUs; i += 1) {
       worker.push(cluster.fork());
       start = step * i;
@@ -50,19 +51,29 @@ async function isPrimary() {
       });
     }
 
-    cluster.on('exit', async () => {
-      worker[numCPUs - 1] = cluster.fork();
+    cluster.on('exit', async (currWorker) => {
+      stop += step;
       start = end;
       end = start + step;
-      let count = start + step - (step * numCPUs);
+      const count = start + step - (step * numCPUs);
+      console.log('Worker is died');
+
+      const diedWorkerIndex = worker.findIndex((w) => w.id === currWorker.id);
+
+      if (stop <= limit - step * numCPUs) {
+        worker[diedWorkerIndex] = cluster.fork();
+      }
+
       console.log(count, ' => Has been checked!');
 
-      if (count >= limit) {
-        throw new Error('Good!! Your data has been checked!!');
-      }
-      worker[numCPUs - 1].send(links.slice(start, end));
+      const chunk = links.slice(start, end);
+      console.log('start, end => ', start, end);
+      console.log('chunk => ', chunk);
+      worker[diedWorkerIndex].send(chunk);
 
-      worker[numCPUs - 1].on('message', async (msg) => {
+      worker[diedWorkerIndex].on('message', async (msg) => {
+        console.log('msg on => ', msg);
+
         const rejectedData = await knex
           .from('links')
           .whereIn('id', msg.data[0])
@@ -78,7 +89,7 @@ async function isPrimary() {
         console.log('Table update fulfilled', fulfilledData);
       });
 
-      worker[numCPUs - 1].on('error', (error) => {
+      worker[diedWorkerIndex].on('error', (error) => {
         console.log(error);
       });
     });
