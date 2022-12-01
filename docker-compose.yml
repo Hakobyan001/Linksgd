@@ -1,0 +1,14 @@
+version: "3.3"
+services:
+  liksgd:
+    build: 
+      dockerfile: Dockerfile
+      context: .
+    restart: always
+    volumes:
+      - ./src:/app/src
+    ports:
+      - "3050:3000"
+    # env_file: 
+    #   - ./.env
+    
